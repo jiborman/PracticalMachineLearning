@@ -1,0 +1,96 @@
+---
+title: "Final Project"
+author: "JiBorman"
+date: "3/11/2017"
+output: html_document
+---
+# Setup
+```{r setup}
+rm(list=ls())
+set.seed(12345)
+options(stringsAsFactors = F)
+library(caret)
+library(randomForest)
+library(rpart)
+```
+
+# Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. Participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways, defined as follows: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)
+
+The goal of this project is to predict the manner in which participants did the exercise. This is the "classe" variable in the training set. We look at any of the other variables as potential predictors. Below, we create a report describing how the model was built , how cross validation was used, the expected out of sample error is from our model, and why particular choices were made. 
+
+# Loading in Data
+## Training Data
+```{r TrainingData}
+if(file.exists('./trainingdata.csv')){
+  TrainingData <- read.csv('./trainingdata.csv', na.strings = c('NA', '', '#DIV/0!'))
+}else{
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", dest='./trainingdata.csv')
+  TrainingData <- read.csv('./trainingdata.csv', na.strings = c('NA', '', '#DIV/0!'))
+}
+```
+
+## Test Data
+```{r TestData}
+if(file.exists('./testdata.csv')){
+  TestData <- read.csv('./testdata.csv', na.strings = c('NA', '', '#DIV/0!'))
+}else{
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", dest='./testdata.csv')
+  TestData <- read.csv('./testdata.csv', na.strings = c('NA', '', '#DIV/0!'))
+}
+```
+
+# Data Manipulation
+## Training Data
+We start by cleaning out predictor variables which are incomplete (any are NA), the indexubg variable and timestamp information. Then we remove predictors with near zero variance.
+```{r CleanTrainingData}
+if(any(apply(is.na(TrainingData), 2, any))){
+  TrainingData <- TrainingData[,-which(apply(is.na(TrainingData), 2, any))]
+}
+
+nzv <- nearZeroVar(TrainingData, saveMetrics=TRUE)
+```
+The following variables have near zero variance, so we remove them from our list of potential predictors: `r paste(rownames(nzv)[which(nzv$nzv)], sep=', ')`
+```{r CleanTrainingDataCont}
+TrainingData <- TrainingData[,-which(nzv$nzv)]
+```
+We also remove some extraneous columns which have the user name, etc, that should not influence ability.
+```{r}
+TrainingData <- TrainingData[,-seq(1,6)]
+```
+Now we partition the training set into two sets. We will use 60% of TrainingData for training the model and 40% for testing the model. The TestData we downloaded above will be for predictions once models have been selected. 
+```{r SplitTrainingData}
+set.seed(12345)
+inTrain <- createDataPartition(TrainingData$classe, p=.6, list=F)
+data.train <- TrainingData[inTrain,]
+data.test <- TrainingData[-inTrain,]
+```
+
+# Model Selection and Cross Validation
+We use the data.train dataset to train two models, a classification model and a random forest model. We consider 5-fold cross validation to validate our predictor choices. To test our models we use the data.test dataset. For both models, we produce a confusion matrix to evaluate performance.
+```{r CVandModel}
+set.seed(12345)
+control <- trainControl(method='cv', number=5)
+
+set.seed(12345)
+modFit_Class <- train(classe~., data=data.train, method='rpart', trControl=control)
+prediction_Class <- predict(modFit_Class, data.test)
+cm_Class <- confusionMatrix(prediction_Class, data.test$classe)
+
+cm_Class
+
+set.seed(12345)
+modFit_RF <- train(classe~., data=data.train, method='rf', trControl=control, ntree=5)
+prediction_RF <- predict(modFit_RF, data.test)
+cm_RF <- confusionMatrix(prediction_RF, data.test$classe)
+
+cm_RF
+```
+The accuracy for the classification model is `r cm_Class$overall[1]`. The out of sample error is `r 1-cm_Class$overall[1]`. For our random forest model, we have an accuracy of `r cm_RF$overall[1]` and out of sample error is `r 1-cm_RF$overall[1]`. Therefore, the random forest model is predicting the classe variable better, and we will use this model to do our final predictions.
+
+# Prediction
+Our preferred model is the random forest model because the accuracy is far better than with the classification model. We use it to predict values from the test set given above.
+```{r FinalPrediction}
+TestData <- TestData[,which(names(TestData)%in%names(TrainingData))]
+predict(modFit_RF, newdata = TestData)
+```
